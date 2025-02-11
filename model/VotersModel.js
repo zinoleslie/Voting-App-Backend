@@ -7,8 +7,9 @@ const VoterSchema = new Schema({
     Email:{type: String, required: true, unique: true},
     Password:{type: String, required: true},
     VotedElections: [{type: Types.ObjectId, ref:"Election", required: true}],
-    isAdmin: {type: Boolean, default:false}
-})
+    isAdmin: {type: Boolean, default:false},
+    createdAt: { type: Date, default: Date.now } 
+},{ timestamps: true }); 
 
 // harsh password before saving to data base
 VoterSchema.pre('save', async function (next) {

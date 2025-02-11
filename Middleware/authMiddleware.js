@@ -6,7 +6,7 @@ const authMiddleware = (req, res, next) => {
         // Correct way to access Authorization header (lowercase 'authorization')
         const authHeader = req.headers.authorization;
         if (!authHeader || !authHeader.startsWith("Bearer ")) {
-            return res.json({ message: "Access denied... Please provide a token" });
+            return res.status(401).json({ message: "Access denied... Please provide a token" });
         }
 
         // Extract the token

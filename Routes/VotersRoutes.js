@@ -4,7 +4,7 @@ const {CreateVoter, loginVoter, getVoter, allVoters} = require('../controllers/V
 const {authMiddleware} = require('../Middleware/authMiddleware')
 
 Router.post('/createVoter', CreateVoter);
-Router.get('/loginVoter', loginVoter);
+Router.post('/loginVoter', loginVoter);
 Router.get('/getVoter/:id',authMiddleware, getVoter);
 Router.get('/get/allVoters',authMiddleware, allVoters)
 

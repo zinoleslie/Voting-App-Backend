@@ -108,7 +108,7 @@ exports.getSingleElection = async (req, res) => {
 exports.getAllCandidate = async (req, res) => {
     const { id } = req.params;
     try {
-        const Candidates = await CandidateModel.find({ election: id });
+        const Candidates = await CandidateModel.find({ electionId: id });
         res.status(200).json({ success: true, message: ' fetched candidates', data: Candidates })
     } catch (error) {
         res.status(500).json({ message: 'failed to fetch candidate', error: error })
@@ -122,9 +122,15 @@ exports.electionVoters = async (req, res) => {
         return res.json({ message: "only admins have access to this" })
     }
     const { id } = req.params;
+    if(!id){
+        res.status(402).json({message:"no id found"})
+    }
     try {
-        const Voters = await VotersModel.find({ _id: id }).populate('voters')
-        res.status(200).json({ success: true, message: "fetch voters successful", data: Voters })
+        const VotersData = await ElectionModel.findById({ _id: id }).populate('Voters')
+        if(!VotersData) {
+            res.status(500).json({message:"no voters found"})
+        }
+        res.status(200).json({ success: true, message: "fetch voters successful", data: VotersData.Voters })
     } catch (error) {
         res.status(500).json({ message: "failed to fetch voters of the candidate", error: error })
     }

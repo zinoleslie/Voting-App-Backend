@@ -6,10 +6,12 @@ const {authMiddleware} = require('../Middleware/authMiddleware')
 Router.post('/createElection', authMiddleware, createElection);
 Router.get('/getElections', authMiddleware, getElections);
 Router.get('/getsingleElection/:id',authMiddleware, getSingleElection);
-Router.get('/getAllCandidate/:id', authMiddleware, getAllCandidate);
-Router.get('/election/voter/:id', authMiddleware, electionVoters);
+Router.get('/elections/:id/candidates', authMiddleware, getAllCandidate);
+Router.get('/election/:id/voters', authMiddleware, electionVoters);
 Router.patch('/edit/election/:id', authMiddleware, updateElection);
 Router.delete('/delete/election/:id', authMiddleware, deleteElection)
+
+
 
 
 
