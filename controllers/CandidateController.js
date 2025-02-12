@@ -4,92 +4,74 @@ const VotersModel = require("../model/VotersModel");
 const { v4: uuid } = require("uuid");
 const mongoose = require("mongoose");
 const cloudinary = require("../utils/cloudinary");
-const Path = require("path");
-const fs = require("fs");
+const streamifier = require("streamifier");
 
 
 
-//create a function to create a Candidate......
+
+
+
 exports.addCandidate = async (req, res) => {
     try {
-        // // Check if the user is an admin
         if (!req.user.isAdmin) {
             return res.status(403).json({ message: "Only admins can add candidates" });
         }
 
-        // Destructure the required fields from the request body
         const { fullname, motto, electionId } = req.body;
-        // console.log('election id ', electionId)
         if (!fullname || !motto || !electionId) {
             return res.status(422).json({ message: "Please fill in all fields" });
         }
 
-        // Check if an image is provided
         if (!req.files || !req.files.image) {
             return res.status(422).json({ message: "Please provide an image" });
         }
 
         const { image } = req.files;
 
-        // Check the image size
         if (image.size > 1000000) {
             return res.status(422).json({ message: "File too big. Must be less than 1MB" });
         }
 
-        // Rename the image to a unique name
-        let fileName = image.name;
-        fileName = fileName.split(".");
-        fileName = fileName[0] + uuid() + "." + fileName[fileName.length - 1];
-
-        // Upload the image to the uploads folder
-        let filePath = Path.join(__dirname, '..', "uploads", fileName);
-        await new Promise((resolve, reject) => {
-            image.mv(filePath, (error) => {
-                if (error) {
-                    reject(error);
+        // Cloudinary upload via stream
+        const uploadStream = cloudinary.uploader.upload_stream(
+            { resource_type: "image", folder: "candidates" },
+            async (error, uploadResult) => {
+                if (error || !uploadResult.secure_url) {
+                    return res.status(500).json({ message: "Couldn't save image to Cloudinary", error });
                 }
-                resolve();
-            });
-        });
 
-        // Save the image to Cloudinary
-        const result = await cloudinary.uploader.upload(filePath, { resource_type: 'image' });
-        if (!result.secure_url) {
-            return res.status(500).json({ message: "Couldn't save image to Cloudinary" });
-        }
+                const newCandidate = new CandidateModel({
+                    fullname,
+                    motto,
+                    image: uploadResult.secure_url,
+                    electionId: electionId,
+                });
 
-        // Create a new candidate document
-        const newCandidate = new CandidateModel({
-            fullname,
-            motto,
-            image: result.secure_url,
-            electionId: electionId
-        });
+                const sess = await mongoose.startSession();
+                sess.startTransaction();
+                try {
+                    await newCandidate.save({ session: sess });
+                    let electionDoc = await ElectionModel.findById(electionId).session(sess);
+                    electionDoc.Candidates.push(newCandidate);
+                    await electionDoc.save({ session: sess });
 
-        // Start a Mongoose session for transaction
-        const sess = await mongoose.startSession();
-        sess.startTransaction();
-        try {
-            // Save the new candidate and add it to the election
-            await newCandidate.save({ session: sess });
-            let electionDoc = await ElectionModel.findById(electionId).session(sess);
-            electionDoc.Candidates.push(newCandidate);
-            await electionDoc.save({ session: sess });
+                    await sess.commitTransaction();
+                    res.status(201).json({ success: true, message: "Candidate added successfully", data: newCandidate });
+                } catch (error) {
+                    await sess.abortTransaction();
+                    return res.status(500).json({ message: "Error adding candidate", error: error.message });
+                } finally {
+                    sess.endSession();
+                }
+            }
+        );
 
-            // Commit the transaction
-            await sess.commitTransaction();
-            res.status(201).json({ success: true, message: "Candidate added successfully", data: newCandidate });
-        } catch (error) {
-            await sess.abortTransaction(); // Abort the transaction if an error occurs
-            return res.status(500).json({ message: "Error adding candidate", error: error.message });
-        } finally {
-            sess.endSession(); // End the session after the transaction
-        }
+        // Convert buffer to readable stream and pipe to Cloudinary
+        streamifier.createReadStream(image.data).pipe(uploadStream);
     } catch (error) {
         res.status(500).json({ message: "Error creating candidate", error: error.message });
     }
 };
-
 
 
 

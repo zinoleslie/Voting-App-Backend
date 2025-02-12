@@ -4,70 +4,68 @@ const VotersModel = require("../model/VotersModel");
 const { v4: uuid } = require("uuid");
 const cloudinary = require("../utils/cloudinary");
 const Path = require("path");
-const fs = require("fs");
+const streamifier = require("streamifier");
+
+
+
+
 
 exports.createElection = async (req, res) => {
-    //checking to make sure only admins can perform thus action
-    console.log('User info in createElection:', req.user);
-    if(!req.user.isAdmin){
-        return res.json({message:"only admins have access to this"})
+    console.log("User info in createElection:", req.user);
+    if (!req.user.isAdmin) {
+        return res.status(403).json({ message: "Only admins have access to this" });
     }
+
     try {
         const { Title, Description } = req.body;
         if (!Title || !Description) {
-            return res.status(422).json({ message: "fill in all fields" });
+            return res.status(422).json({ message: "Fill in all fields" });
         }
 
         if (!req.files || !req.files.thumbnail) {
-            return res.status(422).json({ message: "choose a thumbnail" });
+            return res.status(422).json({ message: "Choose a thumbnail" });
         }
 
         const { thumbnail } = req.files;
         if (thumbnail.size > 1000000) {
-            return res.status(422).json({ message: 'file too big. choose a file with less than 1mb' });
+            return res.status(422).json({ message: "File too big. Choose a file with less than 1MB" });
         }
 
-        // Rename the image with a unique name
-        let fileName = thumbnail.name;
-        fileName = fileName.split(".");
-        fileName = fileName[0] + uuid() + "." + fileName[fileName.length - 1];
-
-        // Upload the file to the 'uploads' folder
-        const filePath = Path.join(__dirname, '..', "uploads", fileName);
-
-        await new Promise((resolve, reject) => {
-            thumbnail.mv(filePath, (error) => {
-                if (error) {
-                    reject(error); // Reject if there's an error
+        // Use a Promise to handle Cloudinary upload
+        const uploadPromise = new Promise((resolve, reject) => {
+            const stream = cloudinary.uploader.upload_stream(
+                { resource_type: "image", folder: "elections" },
+                (error, result) => {
+                    if (error || !result.secure_url) {
+                        reject({ message: "Couldn't save image to Cloudinary", error });
+                    } else {
+                        resolve(result.secure_url);
+                    }
                 }
-                resolve(); // Resolve if no error
-            });
+            );
+
+            // Convert file buffer into a readable stream
+            streamifier.createReadStream(thumbnail.data).pipe(stream);
         });
 
-        // Store the image on Cloudinary
-        const result = await cloudinary.uploader.upload(filePath, { resource_type: "image" });
-        if (!result) {
-            return res.status(500).json({ message: "error uploading image to cloudinary" });
-        }
-
-        // Delete the file from the 'uploads' folder after uploading to Cloudinary
-
+        const imageUrl = await uploadPromise;
 
         // Save the election data in the database
         const newElection = new ElectionModel({
             Title,
             Description,
-            thumbnail: result.secure_url, // Store the Cloudinary URL
+            thumbnail: imageUrl, // Store the Cloudinary URL
         });
 
         const savedElection = await newElection.save();
         res.status(200).json({
             success: true,
-            message: 'Election created successfully',
-            data: savedElection
+            message: "Election created successfully",
+            data: savedElection,
         });
+
     } catch (error) {
-        res.status(500).json({ message: "failed to create election", error: error.message });
+        res.status(500).json({ message: "Failed to create election", error: error.message });
     }
 };
 
@@ -138,61 +136,62 @@ exports.electionVoters = async (req, res) => {
 
 
 
-//update election
+
 exports.updateElection = async (req, res) => {
-    //making sure only can admins can edit elections
     if (!req.user.isAdmin) {
-        return res.json({ message: "only admins have access to this" })
+        return res.status(403).json({ message: "Only admins have access to this" });
     }
+
     const { id } = req.params;
     try {
         const { Title, Description } = req.body;
         if (!Title || !Description) {
-            return res.json({ message: 'fill in all fields' })
+            return res.status(422).json({ message: "Fill in all fields" });
         }
-        if (req.files.thumbnail) {
+
+        let updatedData = { Title, Description };
+
+        if (req.files && req.files.thumbnail) {
             const { thumbnail } = req.files;
             if (thumbnail.size > 1000000) {
-                return res.json({ message: 'file too big... must be less tha 1mb' })
+                return res.status(422).json({ message: "File too big... must be less than 1MB" });
             }
 
-            //rename filename
-            fileName = thumbnail.name;
-            fileName = fileName.split(".");
-            fileName = fileName[0] + uuid() + "." + fileName[fileName.length - 1];
-
-            //upload to uploads folder
-            const filePath = Path.join(__dirname, '..', "uploads", fileName);
-
-            await new Promise((resolve, reject) => {
-                thumbnail.mv(filePath, (error) => {
-                    if (error) {
-                        reject(error); // Reject if there's an error
+            // Upload image directly to Cloudinary using Streamifier
+            const uploadPromise = new Promise((resolve, reject) => {
+                const stream = cloudinary.uploader.upload_stream(
+                    { resource_type: "image", folder: "elections" },
+                    (error, result) => {
+                        if (error || !result.secure_url) {
+                            reject({ message: "Failed to upload image to Cloudinary", error });
+                        } else {
+                            resolve(result.secure_url);
+                        }
                     }
-                    resolve(); // Resolve if no error
-                });
+                );
+
+                streamifier.createReadStream(thumbnail.data).pipe(stream);
             });
-            //save to cloudinary
 
-            const result = await cloudinary.uploader.upload(filePath, { resource_type: 'image' })
-            if (!result.secure_url) {
-                return res.json({ message: "failed to store in cloudinary" })
-            }
-
-            const newUpdate = await ElectionModel.findByIdAndUpdate(id, {
-                Title,
-                Description,
-                thumbnail: result.secure_url
-            },
-                { new: true }
-            )
-            res.status(201).json({ success: true, message: 'updated succesfully', data: newUpdate })
+            const imageUrl = await uploadPromise;
+            updatedData.thumbnail = imageUrl; // Store Cloudinary URL
         }
-    } catch (error) {
-        res.status(500).json({ message: "failed to update election", error: error.message })
-    }
-}
 
+        const updatedElection = await ElectionModel.findByIdAndUpdate(id, updatedData, { new: true });
+
+        if (!updatedElection) {
+            return res.status(404).json({ message: "Election not found" });
+        }
+
+        res.status(200).json({
+            success: true,
+            message: "Election updated successfully",
+            data: updatedElection,
+        });
+    } catch (error) {
+        res.status(500).json({ message: "Failed to update election", error: error.message });
+    }
+};
 
 //DELETE ELECTIONS  
 exports.deleteElection = async (req, res) => {
